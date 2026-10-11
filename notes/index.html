@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="af">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mandy Web Notas</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, sans-serif; background: #101820; color: #fff; margin: 0; padding: 20px; }
+  h1 { color: #FF7A00; text-align: center; font-size: 34px; margin-bottom: 6px; }
+  .sub { color: #B0BEC5; text-align: center; margin-bottom: 24px; font-size: 18px; }
+  .card { max-width: 640px; margin: 0 auto 16px; background: #1B2A36; border-radius: 12px; padding: 22px; }
+  label { font-size: 20px; display: block; margin: 12px 0 6px; }
+  input, textarea, button { font-size: 21px; padding: 14px; width: 100%; border-radius: 10px; border: none; }
+  input, textarea { background: #0d1520; color: #fff; border: 2px solid #33475b; }
+  button { background: #FF7A00; color: #101820; font-weight: bold; margin-top: 14px; cursor: pointer; }
+  button.big { font-size: 23px; min-height: 60px; }
+  .msg { font-size: 19px; margin-top: 12px; min-height: 24px; }
+  .ok { color: #8CE99A; } .err { color: #FF8787; }
+  textarea { min-height: 220px; line-height: 1.5; }
+  .hidden { display: none; }
+  .welcome { text-align: center; font-size: 21px; color: #8CE99A; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<h1>Mandy Web Notas</h1>
+<p class="sub">Jou notas, orals, op enige toestel. Teken in of registreer.</p>
+
+<div id="authCard" class="card">
+  <div class="hidden" id="modeToggleWrap">
+    <button class="big" id="modeToggle" onclick="toggleMode()">Wissel na Registreer</button>
+  </div>
+  <label for="user">Gebruikersnaam</label>
+  <input id="user" autocomplete="username">
+  <label for="pass">Wagwoord</label>
+  <input id="pass" type="password" autocomplete="current-password">
+  <button class="big" id="authBtn" onclick="doAuth()">Teken in</button>
+  <div class="msg" id="authMsg" role="status" aria-live="polite"></div>
+</div>
+
+<div id="notesCard" class="card hidden">
+  <div class="welcome" id="welcome"></div>
+  <label for="notes">Jou notas (stoer outomaties met die knoppie hieronder)</label>
+  <textarea id="notes" placeholder="Skryf jou notas hier..."></textarea>
+  <button class="big" onclick="saveNotes()">Stoor my notas</button>
+  <button class="big" onclick="loadNotes()" style="background:#33475b;color:#fff">Laai my notas</button>
+  <button class="big" onclick="logout()" style="background:#33475b;color:#fff">Teken uit</button>
+  <div class="msg" id="notesMsg" role="status" aria-live="polite"></div>
+</div>
+
+<script>
+const API = "https://superagent-269bfe30.base44.app/functions/siteApi";
+const SITE = "notes";
+var mode = "login";
+var token = localStorage.getItem("mandy_token") || "";
+var uname = localStorage.getItem("mandy_name") || "";
+
+function msg(id, text, ok) {
+  var el = document.getElementById(id);
+  el.textContent = text;
+  el.className = "msg " + (ok ? "ok" : "err");
+}
+function toggleMode() {
+  mode = mode === "login" ? "register" : "login";
+  document.getElementById("authBtn").textContent = mode === "login" ? "Teken in" : "Registreer";
+  document.getElementById("modeToggle").textContent = mode === "login" ? "Wissel na Registreer" : "Wissel na Teken in";
+}
+async function doAuth() {
+  var name = document.getElementById("user").value.trim();
+  var pass = document.getElementById("pass").value;
+  if (!name || pass.length < 3) { msg("authMsg", "Voer asseblief 'n gebruikersnaam en wagwoord (min 3 karakters) in.", false); return; }
+  msg("authMsg", "Wag asseblief...", true);
+  try {
+    var r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: mode, site: SITE, name: name, pass: pass }) });
+    var d = await r.json();
+    if (d.success) {
+      token = d.token; uname = name;
+      localStorage.setItem("mandy_token", token);
+      localStorage.setItem("mandy_name", name);
+      enter();
+    } else msg("authMsg", d.error || "Misluk", false);
+  } catch (e) { msg("authMsg", "Kon nie die bedieners bereik nie. Kyk jou internet.", false); }
+}
+function enter() {
+  document.getElementById("authCard").classList.add("hidden");
+  document.getElementById("notesCard").classList.remove("hidden");
+  document.getElementById("welcome").textContent = "Welkom, " + uname + "!";
+  loadNotes();
+}
+async function saveNotes() {
+  var data = document.getElementById("notes").value;
+  msg("notesMsg", "Stoor tans...", true);
+  try {
+    var r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save", site: SITE, token: token, data: data }) });
+    var d = await r.json();
+    if (d.success) msg("notesMsg", "Gestoor! Jou notas is veilig.", true);
+    else msg("notesMsg", d.error || "Misluk", false);
+  } catch (e) { msg("notesMsg", "Stoor het misluk", false); }
+}
+async function loadNotes() {
+  try {
+    var r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "load", site: SITE, token: token }) });
+    var d = await r.json();
+    if (d.success) {
+      document.getElementById("notes").value = d.data || "";
+      msg("notesMsg", d.data ? "Notas gelaai." : "Jy het nog geen notas nie. Skryf gerus!", true);
+    } else msg("notesMsg", d.error || "Misluk", false);
+  } catch (e) { msg("notesMsg", "Laai het misluk", false); }
+}
+function logout() {
+  localStorage.removeItem("mandy_token");
+  localStorage.removeItem("mandy_name");
+  token = ""; uname = "";
+  document.getElementById("notesCard").classList.add("hidden");
+  document.getElementById("authCard").classList.remove("hidden");
+}
+if (token) enter();
+else document.getElementById("modeToggleWrap").classList.remove("hidden");
+</script>
+</body>
+</html>
