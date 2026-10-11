@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mandy Web Chat</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, sans-serif; background: #101820; color: #fff; margin: 0; padding: 14px; font-size: 19px; }
+  body.light { background: #F4F6F8; color: #17222B; }
+  h1 { color: #00C2A8; text-align: center; font-size: 32px; margin: 4px 0 2px; }
+  .sub { color: #8899A6; text-align: center; margin: 0 0 14px; }
+  body.light .sub { color: #55636E; }
+  .card { max-width: 720px; margin: 0 auto 14px; background: #1B2A36; border-radius: 12px; padding: 18px; }
+  body.light .card { background: #FFFFFF; border: 1px solid #D5DBE0; }
+  label { font-size: 19px; display: block; margin: 10px 0 5px; }
+  input, button, select { font-size: 20px; padding: 12px; width: 100%; border-radius: 10px; border: none; }
+  input { background: #0D1520; color: #fff; border: 2px solid #33475B; }
+  body.light input { background: #EDF1F4; color: #17222B; border: 2px solid #B7C1C9; }
+  button { background: #00C2A8; color: #101820; font-weight: bold; cursor: pointer; min-height: 52px; }
+  button.gray { background: #33475B; color: #fff; }
+  body.light button.gray { background: #B7C1C9; color: #17222B; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .msg { font-size: 18px; margin-top: 10px; min-height: 24px; }
+  .ok { color: #7BD88F; } .err { color: #FF8787; }
+  #chatLog { max-height: 46vh; overflow-y: auto; padding: 8px; border-radius: 10px; background: #0D1520; }
+  body.light #chatLog { background: #EDF1F4; }
+  .m { margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: #1B2A36; }
+  body.light .m { background: #FFFFFF; border: 1px solid #D5DBE0; }
+  .m.me { border-left: 5px solid #00C2A8; }
+  .m .who { font-weight: bold; color: #00C2A8; }
+  .m .when { color: #8899A6; font-size: 15px; margin-left: 8px; }
+  .m .txt { margin-top: 4px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+  .chip { display: inline-block; background: #33475B; color: #fff; border-radius: 16px; padding: 6px 12px; margin: 4px 4px 0 0; font-size: 17px; cursor: pointer; }
+  .chip.on { background: #00C2A8; color: #101820; font-weight: bold; }
+  body.light .chip { background: #D5DBE0; color: #17222B; }
+  .hidden { display: none; }
+  #top { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+  #who { color: #00C2A8; font-weight: bold; font-size: 20px; }
+  .opts { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .opts button { min-width: 30%; flex: 1; }
+</style>
+</head>
+<body>
+<h1>Mandy Web Chat</h1>
+<p class="sub">Real chat with real accounts. Register once, then log in anywhere.</p>
+
+<div id="authCard" class="card">
+  <div class="row"><button class="gray" id="modeBtn">Switch to Register</button></div>
+  <label for="user">Username</label>
+  <input id="user" autocomplete="username">
+  <label for="pass">Password</label>
+  <input id="pass" type="password" autocomplete="current-password">
+  <button id="authBtn" onclick="doAuth()" style="margin-top:14px">Log in</button>
+  <div class="msg" id="authMsg" role="alert" aria-live="polite"></div>
+</div>
+
+<div id="chatCard" class="card hidden">
+  <div id="top">
+    <span id="who"></span>
+    <button class="gray" style="width:auto" onclick="logout()">Log out</button>
+  </div>
+  <div class="opts">
+    <button class="gray" onclick="setFont()">Font size</button>
+    <button class="gray" onclick="setTheme()">Light / dark</button>
+    <button class="gray" onclick="setSpeak()" id="speakBtn">Read aloud: off</button>
+    <button class="gray" onclick="setSound()" id="soundBtn">Sound: off</button>
+    <button class="gray" onclick="setStamp()" id="stampBtn">Times: on</button>
+    <button class="gray" onclick="showRooms()">Rooms</button>
+    <button class="gray" onclick="newDM()">Private message</button>
+    <button class="gray" onclick="clearView()">Clear view</button>
+  </div>
+  <div id="roomRow"><span id="roomLabel" style="font-size:20px;color:#00C2A8;font-weight:bold">Room: general</span></div>
+  <div id="rooms" class="hidden" style="margin-top:8px">
+    <label for="newRoom">Create a new room</label>
+    <div class="row">
+      <input id="newRoom" placeholder="Room name">
+      <button onclick="makeRoom()">Create</button>
+    </div>
+  </div>
+  <div id="chatLog" role="log" aria-live="polite" aria-label="Chat messages"></div>
+  <label for="msgIn" style="margin-top:12px">Your message</label>
+  <div class="row">
+    <input id="msgIn" placeholder="Type your message here">
+    <button onclick="send()">Send</button>
+  </div>
+  <div class="msg" id="chatMsg" role="status" aria-live="polite"></div>
+</div>
+
+<script>
+const API = "https://superagent-269bfe30.base44.app/functions/siteApi";
+const SITE = "chat";
+var mode = "login", token = "", me = "", room = "general", timer = null;
+var fontSize = 2, light = false, speak = false, sound = false, stamps = true;
+var lastCount = 0, muted = false;
+
+function m(id) { return document.getElementById(id); }
+function msg(id, text, ok) { var e = m(id); e.textContent = text; e.className = "msg " + (ok ? "ok" : "err"); }
+function beep() { try { var c = new (window.AudioContext||window.webkitAudioContext)(); var o = c.createOscillator(); o.frequency.value = 880; o.connect(c.destination); o.start(); o.stop(c.currentTime + 0.08); } catch (e) {} }
+function speakText(t) { try { var u = new SpeechSynthesisUtterance(t); u.rate = 1; u.lang = "en-US"; speechSynthesis.speak(u); } catch (e) {} }
+
+function toggleMode() {
+  mode = mode === "login" ? "register" : "login";
+  m("authBtn").textContent = mode === "login" ? "Log in" : "Register";
+  m("modeBtn").textContent = mode === "login" ? "Switch to Register" : "Switch to Log in";
+}
+async function doAuth() {
+  var name = m("user").value.trim(), pass = m("pass").value;
+  if (!name || pass.length < 3) { msg("authMsg", "Please enter a username and a password of at least 3 characters.", false); return; }
+  msg("authMsg", "Please wait...", true);
+  try {
+    var r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: mode, site: SITE, name: name, pass: pass }) });
+    var d = await r.json();
+    if (d.success) {
+      token = d.token; me = name;
+      localStorage.setItem("chat_token", token);
+      localStorage.setItem("chat_name", me);
+      enter();
+    } else msg("authMsg", d.error || "Failed", false);
+  } catch (e) { msg("authMsg", "Could not reach the server. Check your internet.", false); }
+}
+function enter() {
+  m("authCard").classList.add("hidden");
+  m("chatCard").classList.remove("hidden");
+  m("who").textContent = "Logged in as " + me;
+  msg("chatMsg", "Welcome, " + me + "! You are in room general.", true);
+  poll(); timer = setInterval(poll, 4000);
+}
+function logout() {
+  clearInterval(timer); muted = false;
+  localStorage.removeItem("chat_token"); localStorage.removeItem("chat_name");
+  token = ""; me = "";
+  m("chatCard").classList.add("hidden");
+  m("authCard").classList.remove("hidden");
+}
+async function poll() {
+  try {
+    var r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "chat_load", site: SITE, token: token, room: room }) });
+    var d = await r.json();
+    if (!d.success) { if (!muted) { msg("chatMsg", d.error || "Session lost", false); muted = true; clearInterval(timer); } return; }
+    muted = false;
+    render(d.messages || []);
+  } catch (e) {}
+}
+function render(list) {
+  var log = m("chatLog");
+  var fresh = list.length > lastCount && lastCount > 0;
+  lastCount = list.length;
+  var h = "";
+  for (var i = 0; i < list.length; i++) {
+    var x = list[i];
+    var mine = x.sender === me;
+    var when = stamps ? ' <span class="when">' + String(x.at).replace("T", " ").slice(0, 16) + "</span>" : "";
+    h += '<div class="m ' + (mine ? "me" : "") + '"><span class="who">' + esc(x.sender) + ":" + when + '</span><div class="txt">' + esc(x.content) + "</div></div>";
+  }
+  if (!h) h = "<p style='padding:12px;color:#8899A6'>No messages yet. Say hello!</p>";
+  var atBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 40;
+  log.innerHTML = h;
+  if (atBottom) log.scrollTop = log.scrollHeight;
+  if (fresh && sound) beep();
+  if (fresh && speak) {
+    var last = list[list.length - 1];
+    if (last.sender !== me) speakText(last.sender + " says: " + last.content);
+  }
+}
+async function send() {
+  var t = m("msgIn").value.trim();
+  if (!t) return;
+  m("msgIn").value = "";
+  try {
+    var r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "chat_send", site: SITE, token: token, room: room, content: t }) });
+    var d = await r.json();
+    if (d.success) { poll(); }
+    else msg("chatMsg", d.error || "Failed to send", false);
+  } catch (e) { msg("chatMsg", "Sending failed", false); }
+}
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+// ---------- options ----------
+function setFont() {
+  fontSize = fontSize >= 3 ? 1 : fontSize + 1;
+  var sizes = [17, 19, 22, 26];
+  document.body.style.fontSize = sizes[fontSize] + "px";
+  msg("chatMsg", "Text size " + ["small", "normal", "large", "extra large"][fontSize] + ".", true);
+}
+function setTheme() {
+  light = !light;
+  document.body.className = light ? "light" : "";
+  msg("chatMsg", light ? "Light theme on." : "Dark theme on.", true);
+}
+function setSpeak() { speak = !speak; m("speakBtn").textContent = "Read aloud: " + (speak ? "on" : "off"); msg("chatMsg", "Reading new messages aloud is now " + (speak ? "on" : "off") + ".", true); if (speak) speakText("Reading aloud is on."); }
+function setSound() { sound = !sound; m("soundBtn").textContent = "Sound: " + (sound ? "on" : "off"); msg("chatMsg", "Message sound is now " + (sound ? "on" : "off") + ".", true); }
+function setStamp() { stamps = !stamps; m("stampBtn").textContent = "Times: " + (stamps ? "on" : "off"); poll(); }
+function clearView() { lastCount = 0; m("chatLog").innerHTML = "<p style='padding:12px;color:#8899A6'>View cleared. New messages will appear.</p>"; msg("chatMsg", "Chat view cleared.", true); }
+
+// ---------- rooms ----------
+function showRooms() { m("rooms").classList.toggle("hidden"); }
+function makeRoom() {
+  var r = m("newRoom").value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+  if (!r) { msg("chatMsg", "Type a room name first.", false); return; }
+  room = r; lastCount = 0;
+  m("roomLabel").textContent = "Room: " + r;
+  m("rooms").classList.add("hidden");
+  msg("chatMsg", "You are now in room " + r + ". Share this room name so others can join.", true);
+  poll();
+}
+function newDM() {
+  var other = prompt("Who do you want to message privately? Type their exact username:");
+  if (!other) return;
+  other = other.trim().toLowerCase();
+  if (other === me.toLowerCase()) { msg("chatMsg", "You cannot send private messages to yourself.", false); return; }
+  var a = me.toLowerCase(), b = other;
+  room = a < b ? "dm:" + a + "|" + b : "dm:" + b + "|" + a;
+  lastCount = 0;
+  m("roomLabel").textContent = "Private chat with " + other;
+  msg("chatMsg", "Private chat with " + other + ". Only you two can see this.", true);
+  poll();
+}
+document.getElementById("msgIn").addEventListener("keydown", function (e) { if (e.key === "Enter") send(); });
+document.getElementById("modeBtn").addEventListener("click", toggleMode);
+
+token = localStorage.getItem("chat_token") || "";
+me = localStorage.getItem("chat_name") || "";
+if (token && me) enter();
+</script>
+</body>
+</html>
